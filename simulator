@@ -1,1 +1,97 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <title>Simulátor pružiny</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin: 20px; }
+    canvas { border: 1px solid #000; background: #f8f8f8; }
+    #statusBox {
+      margin: 10px;
+      padding: 5px;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+    .connected { background: #d4edda; color: #155724; }
+    .disconnected { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+
+<h1>Simulácia pružiny</h1>
+<div id="statusBox" class="disconnected">WebSocket: Nepripojené</div>
+<canvas id="springCanvas" width="300" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById('springCanvas');
+const ctx = canvas.getContext('2d');
+const statusBox = document.getElementById('statusBox');
+let websocket = null;
+
+// Premenné pre animáciu
+let position = 0;
+
+function drawSpring(y) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.beginPath();
+  ctx.moveTo(150, 0);
+
+  const coils = 12;
+  const spacing = y / coils;
+  for (let i = 0; i < coils; i++) {
+    const direction = (i % 2 === 0) ? -20 : 20;
+    ctx.quadraticCurveTo(150 + direction, (i + 0.5) * spacing, 150, (i + 1) * spacing);
+  }
+
+  ctx.strokeStyle = '#2c3e50';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Gulička
+  ctx.beginPath();
+  ctx.arc(150, y + 20, 20, 0, Math.PI * 2);
+  ctx.fillStyle = '#3498db';
+  ctx.fill();
+}
+
+// WebSocket pripojenie
+function connectWebSocket() {
+  websocket = new WebSocket('ws://localhost:8084'); // prispôsob IP/port
+
+  websocket.onopen = () => {
+    statusBox.className = "connected";
+    statusBox.textContent = "WebSocket: Pripojené";
+  };
+
+  websocket.onclose = () => {
+    statusBox.className = "disconnected";
+    statusBox.textContent = "WebSocket: Odpojené";
+    setTimeout(connectWebSocket, 2000);
+  };
+
+  websocket.onerror = () => {
+    statusBox.className = "disconnected";
+    statusBox.textContent = "WebSocket: Chyba";
+  };
+
+  websocket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+
+    if (data.method === "data") {
+      if (data.position !== undefined) {
+        position = data.position;
+        drawSpring(100 + position * 100); // predpokladáme, že pozícia je v metroch
+      }
+    }
+  };
+}
+
+// Štart
+connectWebSocket();
+drawSpring(100); // predvolené kreslenie
+</script>
+
+</body>
+</html>
 
