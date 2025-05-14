@@ -57,7 +57,7 @@ function drawSpring(y) {
 
 // WebSocket pripojenie
 function connectWebSocket() {
-  websocket = new WebSocket('ws://localhost:8084'); // prispôsob IP/port
+  websocket = new WebSocket('ws://127.0.0.1:9006'); // prispôsob IP/port
 
   websocket.onopen = () => {
     statusBox.className = "connected";
@@ -81,7 +81,7 @@ function connectWebSocket() {
     if (data.method === "data") {
       if (data.position !== undefined) {
         position = data.position;
-        drawSpring(100 + position * 100); // predpokladáme, že pozícia je v metroch
+        drawSpring(100 + position); // predpokladáme, že pozícia je v metroch
       }
     }
   };
