@@ -16,7 +16,7 @@ class SpringMassParameters(BaseModel):
     mass: float = Field(..., description="Mass of the ball in kg")
     spring_constant: float = Field(..., description="Spring constant in N/m")
     initial_displacement: float = Field(..., description="Initial displacement from equilibrium in meters")
-    damping_ratio: float = Field(0.0, description="Damping ratio (0 for no damping, typically 0-1)")
+    damping: float = Field(0.0, description="Damping")
 
     @field_validator('mass')
     @classmethod
@@ -43,13 +43,13 @@ class SpringMassParameters(BaseModel):
             raise ValueError(f"Initial displacement cannot exceed {limits['MAX_DISPLACEMENT']} meters")
         return v
 
-    @field_validator('damping_ratio')
+    @field_validator('damping')
     @classmethod
-    def damping_ratio_must_be_valid(cls, v):
+    def damping__must_be_valid(cls, v):
         if v < 0:
-            raise ValueError("Damping ratio cannot be negative")
-        if v > 1:
-            raise ValueError("Damping ratio cannot exceed 1 for underdamped systems")
+            raise ValueError("Damping cannot be negative")
+        if v > 100:
+            raise ValueError("Damping this is highest supported dumping constant")
         return v
 
 
@@ -70,7 +70,7 @@ async def simulate_spring(params: SpringMassParameters):
         params.mass,
         params.spring_constant,
         params.initial_displacement,
-        damping_ratio=params.damping_ratio
+        damping=params.damping
     )
     return {"status": "new simulation started"}
 

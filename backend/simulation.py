@@ -10,86 +10,54 @@ class Simulation:
         self.simulationThread = None
         self.simulationBreakEvent = threading.Event()
         self.itexaWebSocketServer = itexaWebSocketServer
+        self.__g = 9.81  # Default gravitational acceleration in m/s^2
+        self.__timeStep = 0.1  # Default time step in seconds
+        self.__epsilon = 1e-8  # Small value to avoid division by zero
 
-    def _simulate(self, timeStep: float, mass: float, spring_constant: float, initial_displacement: float, damping_ratio: float = 0.0, g: float = 9.81):
+    def _sendData(self, time: float, position: float):
+        data = {
+            "method": "data",
+            "time": round(time, 2),
+            "position": round(position * 100, 2),  # Convert to cm
+        }
+        json_message = json.dumps(data)
+        self.itexaWebSocketServer.send_data(json_message)
+
+    def _simulate(self, mass: float, spring_constant: float, initial_displacement: float, damping: float):
         """
         Simulate a mass-spring system with a ball.
         Args:
-            timeStep (float): Time step in seconds (e.g., 0.01 for smooth updates).
+            timeStep (float): Time step in seconds (e.g., 0.1 for smooth updates).
             mass (float): Mass of the ball in kg.
             spring_constant (float): Spring constant in N/m.
             initial_displacement (float): Initial displacement from equilibrium in meters.
-            damping_ratio (float): Damping ratio (0 for no damping, typically 0-1).
-            g (float): Gravitational acceleration in m/s^2 (default 9.81).
+            damping (float): (0 for no damping).
         """
-        # Calculate natural frequency (ω = √(k/m))
-        omega = math.sqrt(spring_constant / mass)
-        
-        # Calculate damping coefficient (c = 2 * damping_ratio * √(m * k))
-        damping_coeff = 2 * damping_ratio * math.sqrt(mass * spring_constant)
-        
+        w0 = math.sqrt(spring_constant / mass)                      # Natural frequency
+        zeta = damping / (math.sqrt(2.0 * spring_constant * mass))  # Damping ratio
         current_time = 0.0
-        
-        # For undamped or underdamped systems, use analytical solution
-        if damping_ratio < 1:
-            # Calculate damped frequency (ω_d = ω * √(1 - ζ²))
-            damped_omega = omega * math.sqrt(1 - damping_ratio**2) if damping_ratio > 0 else omega
-            
-            # Initial conditions
-            amplitude = initial_displacement
-            
-            while True:
-                # Calculate position using x(t) = A * e^(-ζωt) * cos(ω_d * t)
-                decay = math.exp(-damping_ratio * omega * current_time) if damping_ratio > 0 else 1.0
-                position = amplitude * decay * math.cos(damped_omega * current_time)
-                
-                # Calculate velocity (derivative of position)
-                velocity_term1 = -amplitude * decay * damped_omega * math.sin(damped_omega * current_time)
-                velocity_term2 = -damping_ratio * omega * amplitude * decay * math.cos(damped_omega * current_time) if damping_ratio > 0 else 0
-                velocity = velocity_term1 + velocity_term2
-                
-                # Calculate acceleration (F = -kx - cv, a = F/m)
-                spring_force = -spring_constant * position
-                damping_force = -damping_coeff * velocity
-                acceleration = (spring_force + damping_force) / mass
-                
-                # Send data to clients (position in cm for display)
-                data = {
-                    "method": "data",
-                    "time": round(current_time, 2),
-                    "position": round(position * 100, 2),  # Convert to cm
-                    "velocity": round(velocity * 100, 2),  # Convert to cm/s
-                    "acceleration": round(acceleration * 100, 2),  # Convert to cm/s²
-                    "spring_force": round(spring_force, 2),  # N
-                    "damping_force": round(damping_force, 2)  # N
-                }
-                json_message = json.dumps(data)
-                self.itexaWebSocketServer.send_data(json_message)
-                
-                if self.simulationBreakEvent.is_set():
-                    self.simulationBreakEvent.clear()
-                    return
-                
-                time.sleep(timeStep)
-                current_time += timeStep
-                
-        else:
-            # For critically damped or overdamped systems, simplified handling
-            print("Critically damped or overdamped systems not fully implemented")
-            return
+        while True:
+            if zeta > 1.0 + self.__epsilon:
+                r1 = -w0 * (zeta + math.sqrt(zeta ** 2 - 1))
+                r2 = -w0 * (zeta - math.sqrt(zeta ** 2 - 1))
+                A = (-r2 * initial_displacement) / (r1 - r2)
+                B = initial_displacement - A
+                cur_displacement = A * math.exp(r1 * current_time) + B * math.exp(r2 * current_time)
+            elif zeta < 1.0 - self.__epsilon:
+                wd = w0 * math.sqrt(1.0 - zeta ** 2)  # Damped frequency
+                cur_displacement = math.exp(-zeta * w0 * current_time) * ((initial_displacement * math.cos(wd * current_time)) + (zeta * initial_displacement * w0 * math.sin(wd * current_time) / wd))
+            else:
+                cur_displacement = (initial_displacement + (w0 * initial_displacement * current_time)) * math.exp(-w0 * current_time) # critical zeta == 1
 
-    def simulate(self, limits, mass: float, spring_constant: float, initial_displacement: float, timeStep: float = 0.01, damping_ratio: float = 0.0, g: float = 9.81):
-        """
-        Start the spring-mass simulation.
-        Args:
-            limits (dict): Dictionary containing max values for parameters.
-            mass (float): Mass of the ball in kg.
-            spring_constant (float): Spring constant in N/m.
-            initial_displacement (float): Initial displacement in meters.
-            timeStep (float): Time step in seconds.
-            damping_ratio (float): Damping ratio (0 for no damping).
-            g (float): Gravitational acceleration in m/s^2.
-        """
+            self._sendData(current_time, cur_displacement)
+            if self.simulationBreakEvent.is_set():
+                self.simulationBreakEvent.clear()
+                return
+
+            time.sleep(self.__timeStep)
+            current_time += self.__timeStep
+
+    def simulate(self, limits, mass: float, spring_constant: float, initial_displacement: float, damping: float):
         # Send initialization data
         self.itexaWebSocketServer.send_data(
             json.dumps({
@@ -97,7 +65,6 @@ class Simulation:
                 "mass": mass,
                 "spring_constant": spring_constant,
                 "initial_displacement": initial_displacement,
-                "damping_ratio": damping_ratio,
                 "max_mass": limits["MAX_MASS"],
                 "max_spring_constant": limits["MAX_SPRING_CONSTANT"],
                 "max_displacement": limits["MAX_DISPLACEMENT"]
@@ -112,6 +79,7 @@ class Simulation:
         # Start new simulation thread
         self.simulationThread = threading.Thread(
             target=self._simulate,
-            args=(timeStep, mass, spring_constant, initial_displacement, damping_ratio, g)
+            args=(mass, spring_constant, initial_displacement, damping)
         )
         self.simulationThread.start()
+    
